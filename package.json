@@ -1,0 +1,12 @@
+{
+  "$comment": "SPDX-FileCopyrightText: 2026 maninblack; SPDX-License-Identifier: Apache-2.0",
+  "name": "tire-health-cloud",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "engines": {"node": "26.0.0", "npm": "11.12.1"},
+  "scripts": {"test": "node --test test/*.test.mjs", "start": "node src/main.mjs"},
+  "dependencies": {},
+  "devDependencies": {}
+}

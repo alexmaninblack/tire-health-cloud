@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: 2026 maninblack
+# SPDX-License-Identifier: Apache-2.0
+**
+!Dockerfile
+!package.json
+!src
+!src/**
+!LICENSE
+!NOTICE
