@@ -25,7 +25,7 @@ test("strict Test context rejects duplicates, missing Test, unknown keys and inv
   assert.throws(() => parseContext(" ".repeat(4097)));
 });
 
-test("persistent first-create/restart, context rebinding and truthful not-implemented products", async () => {
+test("persistent first-create/restart and current-Test context rebinding", async () => {
   const directory = mkdtempSync(join(tmpdir(), "tire-backend-test-"));
   const options = {databasePath: join(directory, "data.sqlite"), adminSocketPath: join(directory, "admin.sock"), contextPath: join(directory, "context.json")};
   let app;
@@ -35,21 +35,21 @@ test("persistent first-create/restart, context rebinding and truthful not-implem
     assert.equal((await get(app, "/health/live")).status, 200);
     assert.equal(app.host, "127.0.0.1");
     assert.equal((await get(app, "/health/live")).status, 200);
-    assert.equal((await get(app, "/health/ready")).body.productIngestion, false);
+    assert.equal((await get(app, "/health/ready")).body.productIngestion, true);
     assert.equal((await get(app, "/health/context")).status, 503);
     writeFileSync(options.contextPath, JSON.stringify(context("test-unit")));
     assert.deepEqual((await get(app, "/health/context")).body.systemUids, ["test-unit"]);
-    assert.equal((await get(app, "/api/v1/tire/units/test-unit/assessments")).status, 501);
-    assert.equal((await get(app, "/api/v1/tire/messages", {method: "POST", body: "{}"})).status, 501);
+    assert.equal((await get(app, "/api/v1/tire/units/test-unit/assessments")).status, 200);
+    assert.equal((await get(app, "/api/v1/tire/messages", {method: "POST", body: "{}"})).status, 403);
     assert.equal((await get(app, "/api/v1/brake/messages", {method: "POST", body: "{}"})).status, 404);
     assert.equal((await get(app, "/api/v1/tire/admin/current-run/cleanup", {method: "POST"})).status, 404);
     const proof = await inspectFoundation(options.adminSocketPath);
-    assert.equal(proof.status, 200);
-    assert.deepEqual(proof.body, {scope: "FOUNDATION_ONLY", productIngestion: false, schemaVersion: 1, noProductTablesOrRecords: true, unknownTables: false, removalEligible: true});
+    assert.equal(proof.status, 503);
+    assert.equal(proof.body.errorCode, "TEMPORARILY_UNAVAILABLE");
     writeFileSync(options.contextPath + ".next", JSON.stringify(context("new-test")));
     renameSync(options.contextPath + ".next", options.contextPath);
     assert.equal((await get(app, "/api/v1/tire/units/test-unit/assessments")).status, 404);
-    assert.equal((await get(app, "/api/v1/tire/units/new-test/assessments")).status, 501);
+    assert.equal((await get(app, "/api/v1/tire/units/new-test/assessments")).status, 200);
     const database = new DatabaseSync(options.databasePath);
     const row = {...database.prepare("SELECT * FROM schema_version").get()}; database.close();
     await app.shutdown(); await app.shutdown();
@@ -65,7 +65,7 @@ test("persistent first-create/restart, context rebinding and truthful not-implem
 });
 
 test("unknown schema and unknown table deny readiness and foundation-only removal proof", async () => {
-  for (const mutation of ["PRAGMA user_version=2", "CREATE TABLE product_data(value TEXT)"]) {
+  for (const mutation of ["PRAGMA user_version=3", "CREATE TABLE product_data(value TEXT)"]) {
     const directory = mkdtempSync(join(tmpdir(), "tire-schema-test-"));
     const options = {databasePath: join(directory, "data.sqlite"), adminSocketPath: join(directory, "admin.sock")};
     let app;
@@ -78,7 +78,7 @@ test("unknown schema and unknown table deny readiness and foundation-only remova
       assert.equal((await inspectFoundation(options.adminSocketPath)).status, 503);
       const observed = new DatabaseSync(options.databasePath);
       if (mutation.includes("CREATE")) assert.ok(observed.prepare("SELECT name FROM sqlite_schema WHERE name='product_data'").get());
-      else assert.equal(observed.prepare("PRAGMA user_version").get().user_version, 2);
+      else assert.equal(observed.prepare("PRAGMA user_version").get().user_version, 3);
       observed.close();
     } finally {if (app) await app.shutdown(); rmSync(directory, {recursive: true, force: true});}
   }
@@ -97,5 +97,5 @@ test("explicit container mode and recipe keep host-publication ownership in Demo
   assert.doesNotMatch(recipe, /\/health\/context/);
   const manifest = JSON.parse(readFileSync(new URL("../container-build.json", import.meta.url)));
   assert.equal(manifest.hostPublication, "127.0.0.1:18092:18092");
-  assert.equal(manifest.productIngestion, false);
+  assert.equal(manifest.productIngestion, true);
 });

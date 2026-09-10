@@ -54,3 +54,17 @@ export function readContext(path) {
   } catch { return null; }
   finally { if (descriptor !== undefined) closeSync(descriptor); }
 }
+
+export function readBinding(path) {
+  if (!path) return null;
+  let descriptor;
+  try {
+    descriptor = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const stat = fstatSync(descriptor);
+    if (!stat.isFile() || stat.size > 4096) return null;
+    const text = readFileSync(descriptor, "utf8");
+    const systemUids = parseContext(text), value = JSON.parse(text);
+    return {systemUids, testSystemUid: value.testUnit.systemUid, productionSystemUid: value.productionUnit?.systemUid};
+  } catch { return null; }
+  finally { if (descriptor !== undefined) closeSync(descriptor); }
+}

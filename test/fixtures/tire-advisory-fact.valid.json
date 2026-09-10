@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "contractVersion": "1.0.0",
+  "messageType": "TIRE_ADVISORY_FACT",
+  "unitSystemUid": "validation-system-20260822",
+  "unitRole": "VALIDATION",
+  "serviceVersion": "1.0.0",
+  "serviceArtifactSha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "vdpContractVersion": "3.0.0",
+  "vdpContractSha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "requestId": "16223957-cdc3-57d4-af7d-74f78016ca0e",
+  "producerEpoch": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "sequence": 1,
+  "gatewayState": "APPLIED",
+  "recordedAt": "2026-08-22T12:00:00.700Z",
+  "content": {
+    "assessmentId": "8c6e4a48-9561-5dd8-8036-8a842d92cec8",
+    "operation": "SET",
+    "recommendation": "TIRE_REPLACEMENT_RECOMMENDED",
+    "reasonCode": "PREDICTED_TIRE_WEAR",
+    "issuedAt": "2026-08-22T12:00:00.600Z",
+    "expiresAt": "2026-08-22T12:00:30.600Z",
+    "gatewayReason": "NONE",
+    "gatewayObservedAt": "2026-08-22T12:00:00.650Z",
+    "activeRecommendation": "TIRE_REPLACEMENT_RECOMMENDED",
+    "activeReasonCode": "PREDICTED_TIRE_WEAR",
+    "activeUntil": "2026-08-22T12:00:30.600Z"
+  },
+  "contentSha256": "787beff329a7093a11be141458246ccd0249520166e981dd8b931996c0ccaa26"
+}

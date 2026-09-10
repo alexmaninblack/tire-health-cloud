@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "contractVersion": "1.0.0",
+  "messageType": "TIRE_FUNCTION_STATUS",
+  "statusId": "966067f3-29ec-5a44-bf88-6ce8d5b35c2c",
+  "unitSystemUid": "validation-system-20260822",
+  "unitRole": "VALIDATION",
+  "serviceVersion": "1.0.0",
+  "serviceArtifactSha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "actualVdpContractVersion": "2.0.0",
+  "actualVdpContractSha256": "3333333333333333333333333333333333333333333333333333333333333333",
+  "observedAt": "2026-08-22T12:00:00Z",
+  "content": {
+    "functionalState": "NOT_READY",
+    "reason": "INCOMPATIBLE_VDP",
+    "requiredVdpContractVersion": "3.0.0",
+    "missingPaths": ["Vehicle.CarlaSimulation.ChaosWheel.Row1.Left.LongitudinalSlip"],
+    "missingCapabilities": ["INBOUND_WHEEL_SLIP"]
+  },
+  "contentSha256": "4e5d8e910aec76341e27859dedc32f4f7935f469d92a8fe5e9063d8b3ac3a5aa"
+}

@@ -1,0 +1,81 @@
+{
+  "$comment": "SPDX-FileCopyrightText: 2026 maninblack; SPDX-License-Identifier: MIT",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aosedge-sdv-demo:tire-advisory-fact:schema:v1",
+  "title": "Tire Health Advisory Fact",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "contractVersion", "messageType", "unitSystemUid",
+    "unitRole", "serviceVersion", "serviceArtifactSha256",
+    "vdpContractVersion", "vdpContractSha256", "requestId",
+    "producerEpoch", "sequence", "gatewayState", "recordedAt", "content",
+    "contentSha256"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "contractVersion": {"const": "1.0.0"},
+    "messageType": {"const": "TIRE_ADVISORY_FACT"},
+    "unitSystemUid": {"$ref": "#/$defs/boundedId"},
+    "unitRole": {"enum": ["VALIDATION", "PRODUCTION"]},
+    "serviceVersion": {"type": "string", "maxLength": 32, "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"},
+    "serviceArtifactSha256": {"$ref": "#/$defs/sha256"},
+    "vdpContractVersion": {"type": "string", "maxLength": 32, "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"},
+    "vdpContractSha256": {"$ref": "#/$defs/sha256"},
+    "requestId": {"$ref": "#/$defs/uuid"},
+    "producerEpoch": {"$ref": "#/$defs/uuid"},
+    "sequence": {"type": "integer", "minimum": 1},
+    "gatewayState": {"enum": ["RECEIVED", "APPLIED", "CLEARED", "REJECTED", "EXPIRED", "FAILED"]},
+    "recordedAt": {"type": "string", "format": "date-time"},
+    "content": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "assessmentId", "operation", "reasonCode", "issuedAt", "expiresAt",
+        "gatewayReason", "gatewayObservedAt", "activeRecommendation",
+        "activeReasonCode", "activeUntil"
+      ],
+      "properties": {
+        "assessmentId": {"$ref": "#/$defs/uuid"},
+        "operation": {"enum": ["SET", "CLEAR"]},
+        "recommendation": {"enum": ["TIRE_INSPECTION_RECOMMENDED", "TIRE_REPLACEMENT_RECOMMENDED"]},
+        "reasonCode": {"enum": ["PREDICTED_TIRE_WEAR", "CONDITION_CLEARED"]},
+        "issuedAt": {"type": "string", "format": "date-time"},
+        "expiresAt": {"type": "string", "format": "date-time"},
+        "gatewayReason": {
+          "enum": [
+            "NONE", "UNAUTHORIZED_SOURCE", "UNAUTHORIZED_PATH",
+            "INVALID_SCHEMA", "INVALID_VALUE", "STALE_REQUEST",
+            "REPLAY_DETECTED", "SEQUENCE_ROLLBACK", "RATE_LIMITED",
+            "QM_POLICY_DENIED", "INTERNAL_ERROR"
+          ]
+        },
+        "gatewayObservedAt": {"type": "string", "format": "date-time"},
+        "activeRecommendation": {"enum": ["NONE", "TIRE_INSPECTION_RECOMMENDED", "TIRE_REPLACEMENT_RECOMMENDED"]},
+        "activeReasonCode": {"enum": ["NONE", "PREDICTED_TIRE_WEAR"]},
+        "activeUntil": {
+          "oneOf": [
+            {"type": "string", "format": "date-time"},
+            {"type": "null"}
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"operation": {"const": "SET"}}, "required": ["operation"]},
+          "then": {"required": ["recommendation"], "properties": {"reasonCode": {"const": "PREDICTED_TIRE_WEAR"}}}
+        },
+        {
+          "if": {"properties": {"operation": {"const": "CLEAR"}}, "required": ["operation"]},
+          "then": {"not": {"required": ["recommendation"]}, "properties": {"reasonCode": {"const": "CONDITION_CLEARED"}}}
+        }
+      ]
+    },
+    "contentSha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "uuid": {"type": "string", "format": "uuid"},
+    "boundedId": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9._:-]+$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

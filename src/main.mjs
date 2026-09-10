@@ -5,8 +5,10 @@ import { chmodSync, rmSync, lstatSync } from "node:fs";
 import { createConnection } from "node:net";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { readContext } from "./context.mjs";
-import { foundationProof, openStore } from "./store.mjs";
+import { readContext, readBinding } from "./context.mjs";
+import { foundationProof, openStore, TireStore } from "./store.mjs";
+import {strictJson} from "./protocol.mjs";
+import {gunzipSync} from "node:zlib";
 
 export const LOOPBACK_HOST = "127.0.0.1";
 export const CONTAINER_HOST = "0.0.0.0";
@@ -32,6 +34,19 @@ function json(response, status, body) {
 }
 function error(response, status, code) {
   json(response, status, {schemaVersion: 1, contractVersion: "1.0.0", errorCode: code, retryable: status === 503});
+}
+function failure(response, reason) {
+  const known = {INVALID_MESSAGE: 422, MESSAGE_TOO_LARGE: 413, UNIT_NOT_CURRENT: 404, CURRENT_UNIT_CONTEXT_UNAVAILABLE: 503, INVALID_REQUEST: 400, INVALID_SELECTOR: 400, INVALID_PREVIEW: 409, STALE_PREVIEW: 409};
+  error(response, known[reason] ?? 503, Object.hasOwn(known, reason) ? reason : "TEMPORARILY_UNAVAILABLE");
+}
+async function body(req, maximum = 32768) {
+  if (req.headers["content-type"]?.split(";")[0] !== "application/json") throw new Error("INVALID_REQUEST");
+  const chunks = []; let size = 0;
+  for await (const chunk of req) {size += chunk.length; if (size > maximum) throw new Error("MESSAGE_TOO_LARGE"); chunks.push(chunk);}
+  let bytes = Buffer.concat(chunks);
+  if (req.headers["content-encoding"] === "gzip") {try {bytes = gunzipSync(bytes, {maxOutputLength: maximum});} catch (e) {throw new Error(e.code === "ERR_BUFFER_TOO_LARGE" ? "MESSAGE_TOO_LARGE" : "INVALID_MESSAGE");}}
+  else if (req.headers["content-encoding"] && req.headers["content-encoding"] !== "identity") throw new Error("INVALID_REQUEST");
+  try {return new TextDecoder("utf-8", {fatal: true}).decode(bytes);} catch {throw new Error("INVALID_MESSAGE");}
 }
 function listen(server, ...args) {
   return new Promise((ready, reject) => { server.once("error", reject); server.listen(...args, () => {server.off("error", reject); ready();}); });
@@ -64,50 +79,80 @@ export async function startBackend(options) {
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new TypeError("invalid backend port");
   const host = runtimeMode === "container" ? CONTAINER_HOST : LOOPBACK_HOST;
   await prepareAdminSocket(options.adminSocketPath);
-  let database, reason = "DATABASE_UNAVAILABLE";
-  try { database = openStore(options.databasePath); reason = "READY"; }
+  let database, store, reason = "DATABASE_UNAVAILABLE";
+  try { database = openStore(options.databasePath); store = new TireStore(database, () => readBinding(options.contextPath)); reason = "READY"; }
   catch (error) { reason = error.message === "UNKNOWN_NEWER_SCHEMA" ? "UNKNOWN_NEWER_SCHEMA" : "DATABASE_UNAVAILABLE"; }
   const readiness = () => {
     if (database) {
-      try { foundationProof(database); }
+      try { store.ready(); }
       catch { database.close(); database = undefined; reason = "DATABASE_UNAVAILABLE"; }
     }
-    return {ready: !!database, reason, schemaVersion: database ? 1 : null, scope: "FOUNDATION_ONLY", productIngestion: false};
+    return {ready: !!database, reason, schemaVersion: database ? 2 : null, scope: "TIRE_PRODUCT", productIngestion: !!database};
   };
   const contextReadiness = () => {
     const systemUids = readContext(options.contextPath);
     return !readiness().ready ? {ready: false, reason: "TEMPORARILY_UNAVAILABLE", systemUids: []} : systemUids === null ?
       {ready: false, reason: "CURRENT_UNIT_CONTEXT_UNAVAILABLE", systemUids: []} : {ready: true, reason: "READY", systemUids};
   };
-  const server = createServer((req, res) => {
+  const streams = new Map();
+  const server = createServer(async (req, res) => {
+   try {
     const path = (req.url ?? "/").split("?")[0];
     if (req.method === "GET" && path === "/health/live") return json(res, 200, {status: "LIVE"});
     if (req.method === "GET" && path === "/health/ready") { const value = readiness(); return json(res, value.ready ? 200 : 503, value); }
     if (req.method === "GET" && path === "/health/context") { const value = contextReadiness(); return json(res, value.ready ? 200 : 503, value); }
     if (!path.startsWith("/api/v1/tire/") || path.includes("/admin/")) return error(res, 404, "NOT_FOUND");
     if (!readiness().ready) return error(res, 503, "TEMPORARILY_UNAVAILABLE");
-    const scoped = /^\/api\/v1\/tire\/units\/([^/]+)\//.exec(path);
+    const scoped = /^\/api\/v1\/tire\/units\/([^/]+)\/(assessments|events|advisories|function-status)$/.exec(path);
     if (scoped) {
       const context = contextReadiness();
       if (!context.ready) return error(res, 503, context.reason);
       let uid;
       try { uid = decodeURIComponent(scoped[1]); } catch { return error(res, 400, "INVALID_REQUEST"); }
       if (!context.systemUids.includes(uid)) return error(res, 404, "UNIT_NOT_CURRENT");
+      if (req.method !== "GET") return error(res, 405, "METHOD_NOT_ALLOWED");
+      const params = new URL(req.url, "http://localhost").searchParams;
+      if ([...params.keys()].some(k => !["cursor", "limit"].includes(k)) || [...params.keys()].some(k => params.getAll(k).length !== 1)) throw new Error("INVALID_REQUEST");
+      return json(res, 200, store.query(uid, scoped[2] === "function-status" ? "functionStatus" : scoped[2], {limit: params.has("limit") ? Number(params.get("limit")) : 50, cursor: params.get("cursor")}));
     }
-    // No product messages or empty dashboards are fabricated by the lifecycle
-    // foundation. This endpoint cannot acknowledge any submitted record.
+    if (req.method === "POST" && path === "/api/v1/tire/messages") {
+      if (req.headers.origin !== undefined || req.headers["sec-fetch-mode"] !== undefined) return error(res, 403, "BROWSER_INGESTION_FORBIDDEN");
+      const result = store.ingest(await body(req));
+      json(res, result.status, result.body);
+      if (result.status === 201) for (const [stream, uid] of streams) {
+        if (uid !== result.systemUid) continue;
+        if (!contextReadiness().systemUids.includes(uid) || !stream.write("event: changed\ndata: {\"reread\":true}\n\n")) {stream.end(); streams.delete(stream);}
+      }
+      return;
+    }
+    if (req.method === "GET" && path === "/api/v1/tire/stream") {
+      const params = new URL(req.url, "http://localhost").searchParams, uid = params.get("systemUid"), context = contextReadiness();
+      if (!context.ready) return error(res, 503, context.reason);
+      if ([...params.keys()].join() !== "systemUid" || !context.systemUids.includes(uid)) return error(res, 404, "UNIT_NOT_CURRENT");
+      if (streams.size >= 16) return error(res, 503, "TEMPORARILY_UNAVAILABLE");
+      res.writeHead(200, {"content-type": "text/event-stream", "cache-control": "no-store"});
+      res.write("event: reread\ndata: {\"reread\":true}\n\n"); streams.set(res, uid);
+      req.once("close", () => streams.delete(res)); return;
+    }
     req.resume();
     return error(res, 501, "NOT_IMPLEMENTED");
+   } catch (e) {if (!res.headersSent) failure(res, e.message); else res.end();}
   });
   server.requestTimeout = 10000;
   server.headersTimeout = 10000;
-  const admin = createServer((req, res) => {
-    if (req.method !== "POST" || req.url !== "/internal/foundation-proof") return error(res, 404, "NOT_FOUND");
-    req.resume();
+  const admin = createServer(async (req, res) => {
+    if (req.method !== "POST") return error(res, 404, "NOT_FOUND");
     try {
       if (!database) return error(res, 503, "TEMPORARILY_UNAVAILABLE");
-      return json(res, 200, foundationProof(database));
-    } catch { return error(res, 503, "FOUNDATION_PROOF_FAILED"); }
+      if (req.url === "/internal/foundation-proof") {req.resume(); return json(res, 200, foundationProof(database));}
+      const value = strictJson(await body(req, 4096), 4096);
+      const keys = req.url === "/api/v1/tire/admin/storage/empty-proof" ? ["schemaVersion", "contractVersion"] : req.url?.endsWith("cleanup-preview") ? ["schemaVersion", "contractVersion", "systemUids"] : ["schemaVersion", "contractVersion", "systemUids", "confirmationToken"];
+      if (!value || Object.keys(value).sort().join() !== keys.sort().join() || value.schemaVersion !== 1 || value.contractVersion !== "1.0.0") throw new Error("INVALID_REQUEST");
+      if (req.url === "/api/v1/tire/admin/storage/empty-proof") return json(res, 200, store.emptyProof());
+      if (req.url === "/api/v1/tire/admin/current-run/cleanup-preview") return json(res, 200, store.preview(value.systemUids));
+      if (req.url === "/api/v1/tire/admin/current-run/cleanup") return json(res, 200, store.execute(value.systemUids, value.confirmationToken));
+      return error(res, 404, "NOT_FOUND");
+    } catch (e) {return failure(res, e.message);}
   });
   try {
     await listen(server, port, host);
@@ -140,8 +185,26 @@ export function inspectFoundation(socketPath = ADMIN_SOCKET) {
     call.on("error", reject); call.end();
   });
 }
+export function adminOperation(operation, input, socketPath = ADMIN_SOCKET) {
+  const routes = {preview: "/api/v1/tire/admin/current-run/cleanup-preview", execute: "/api/v1/tire/admin/current-run/cleanup", "empty-proof": "/api/v1/tire/admin/storage/empty-proof"};
+  if (!Object.hasOwn(routes, operation)) throw new Error("invalid admin operation");
+  return new Promise((done, reject) => {
+    const bytes = JSON.stringify(input);
+    const call = request({socketPath, path: routes[operation], method: "POST", headers: {"content-type": "application/json", "content-length": Buffer.byteLength(bytes)}}, response => {
+      let text = "";
+      response.on("data", chunk => {text += chunk; if (Buffer.byteLength(text) > 8192) call.destroy(new Error("invalid admin response"));});
+      response.on("error", reject); response.on("end", () => {try {done({status: response.statusCode, body: strictJson(text, 8192)});} catch {reject(new Error("invalid admin response"));}});
+    });
+    call.setTimeout(10000, () => call.destroy(new Error("admin operation timed out"))); call.on("error", reject); call.end(bytes);
+  });
+}
 export async function main() {
   const args = process.argv.slice(2);
+  if (args.length === 2 && args[0] === "--admin-operation" && ["preview", "execute", "empty-proof"].includes(args[1])) {
+    let text = ""; for await (const chunk of process.stdin) {text += chunk; if (Buffer.byteLength(text) > 4096) throw new Error("invalid admin request");}
+    const result = await adminOperation(args[1], strictJson(text, 4096));
+    process.stdout.write(JSON.stringify(result) + "\n"); process.exitCode = result.status === 200 ? 0 : 1; return;
+  }
   if (args.length === 2 && args[0] === "--admin-operation" && args[1] === "foundation-proof") {
     const result = await inspectFoundation();
     process.stdout.write(JSON.stringify(result) + "\n");
@@ -149,7 +212,7 @@ export async function main() {
     return;
   }
   const app = await startBackend(optionsFromArguments(args));
-  process.stdout.write("Tire Cloud lifecycle foundation started; product ingestion is not implemented\n");
+  process.stdout.write("Tire Cloud process started\n");
   const stop = () => void app.shutdown().then(() => process.exit(0));
   process.once("SIGTERM", stop); process.once("SIGINT", stop);
 }

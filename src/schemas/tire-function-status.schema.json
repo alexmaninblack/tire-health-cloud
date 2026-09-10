@@ -1,0 +1,70 @@
+{
+  "$comment": "SPDX-FileCopyrightText: 2026 maninblack; SPDX-License-Identifier: MIT",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aosedge-sdv-demo:tire-function-status:schema:v1",
+  "title": "Tire Health Function Status",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "contractVersion", "messageType", "statusId",
+    "unitSystemUid", "unitRole", "serviceVersion", "serviceArtifactSha256",
+    "actualVdpContractVersion", "actualVdpContractSha256", "observedAt",
+    "content", "contentSha256"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "contractVersion": {"const": "1.0.0"},
+    "messageType": {"const": "TIRE_FUNCTION_STATUS"},
+    "statusId": {"type": "string", "format": "uuid"},
+    "unitSystemUid": {"type": "string", "minLength": 1, "maxLength": 128},
+    "unitRole": {"enum": ["VALIDATION", "PRODUCTION"]},
+    "serviceVersion": {"type": "string", "maxLength": 32, "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"},
+    "serviceArtifactSha256": {"$ref": "#/$defs/sha256"},
+    "actualVdpContractVersion": {
+      "oneOf": [
+        {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+        {"type": "null"}
+      ]
+    },
+    "actualVdpContractSha256": {
+      "oneOf": [
+        {"$ref": "#/$defs/sha256"},
+        {"type": "null"}
+      ]
+    },
+    "observedAt": {"type": "string", "format": "date-time"},
+    "content": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["functionalState", "reason", "requiredVdpContractVersion", "missingPaths", "missingCapabilities"],
+      "properties": {
+        "functionalState": {"enum": ["OPERATIONAL", "DEGRADED", "NOT_READY"]},
+        "reason": {
+          "enum": [
+            "READY", "BACKEND_SYNC_PENDING", "BACKEND_DISCONNECTED",
+            "OUTBOX_FULL", "INCOMPATIBLE_VDP", "TELEMETRY_STALE",
+            "TELEMETRY_DISCONNECTED", "SERVICE_ACCESS_DENIED",
+            "NOT_READY_STATE"
+          ]
+        },
+        "requiredVdpContractVersion": {"const": "3.0.0"},
+        "missingPaths": {
+          "type": "array",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 256}
+        },
+        "missingCapabilities": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 128}
+        }
+      }
+    },
+    "contentSha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

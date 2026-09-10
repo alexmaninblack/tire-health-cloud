@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "contractVersion": "1.0.0",
+  "messageType": "TIRE_CONDITION_BAND_CHANGED",
+  "eventId": "465653f1-3a7c-5b0c-ad6c-9e4e6c868d28",
+  "assessmentId": "8c6e4a48-9561-5dd8-8036-8a842d92cec8",
+  "unitSystemUid": "validation-system-20260822",
+  "sourceEventTime": "2026-08-22T20:00:00Z",
+  "content": {
+    "eventType": "TIRE_CONDITION_BAND_CHANGED",
+    "previousBand": "NOT_EVALUATED",
+    "currentBand": "REPLACEMENT_RECOMMENDED",
+    "conditionScore": 34,
+    "confidencePercent": 100
+  },
+  "contentSha256": "19983a645d056993dec16010eddc5973b78854e8f83785accdcca28b9b07517f"
+}

@@ -1,0 +1,31 @@
+{
+  "$comment": "SPDX-FileCopyrightText: 2026 maninblack; SPDX-License-Identifier: MIT",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aosedge-sdv-demo:tire-health-event:schema:v1",
+  "title": "Tire Health Band Change Event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "contractVersion", "messageType", "eventId", "assessmentId", "unitSystemUid", "sourceEventTime", "content", "contentSha256"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "contractVersion": {"const": "1.0.0"},
+    "messageType": {"const": "TIRE_CONDITION_BAND_CHANGED"},
+    "eventId": {"type": "string", "format": "uuid"},
+    "assessmentId": {"type": "string", "format": "uuid"},
+    "unitSystemUid": {"type": "string", "minLength": 1, "maxLength": 128},
+    "sourceEventTime": {"type": "string", "format": "date-time"},
+    "content": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["eventType", "previousBand", "currentBand", "conditionScore", "confidencePercent"],
+      "properties": {
+        "eventType": {"const": "TIRE_CONDITION_BAND_CHANGED"},
+        "previousBand": {"enum": ["NOT_EVALUATED", "GOOD", "INSPECTION_RECOMMENDED", "REPLACEMENT_RECOMMENDED"]},
+        "currentBand": {"enum": ["GOOD", "INSPECTION_RECOMMENDED", "REPLACEMENT_RECOMMENDED"]},
+        "conditionScore": {"type": "integer", "minimum": 0, "maximum": 100},
+        "confidencePercent": {"type": "integer", "minimum": 0, "maximum": 100}
+      }
+    },
+    "contentSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

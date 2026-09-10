@@ -1,97 +1,153 @@
 <!-- SPDX-FileCopyrightText: 2026 maninblack -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# Tire Health Cloud — lifecycle foundation
+# Tire Health Cloud — product source candidate
 
-Independent Function Team 2 backend foundation for Studio P1. It owns its own
-process, SQLite database, network and volume. It is not a renamed Brake model,
-does not import Brake source, and has no fabricated Tire data, advisory, durable
-receipt or service-readiness state.
+Independent Function Team 2 backend for D4-019. Product ingestion, durable
+receipts, queries and private cleanup replace the foundation-only gate.
+This source checkpoint is not a built/deployed/qualified backend or calibrated
+Tire model. Brake identity, database and failure boundary are not shared.
 
-The accepted Solution contracts are D4-020
-`contracts/local-demo-hosting/local-demo-hosting-profile.v1.json` and D4-019
-`contracts/tire-cloud-api/tire-cloud-api-profile.v1.json`. P1 explicitly permits
-the backend lifecycle before P7 product implementation. This source is not a
-complete implementation of the Tire product API.
+## Public contract
 
-## Implemented scope
-
-| Read | Meaning |
+| Route | Meaning |
 | --- | --- |
-| `/health/live` | This process answers HTTP |
-| `/health/ready` | Known foundation schema and persistent SQLite storage; explicitly `scope: FOUNDATION_ONLY`, `productIngestion: false` |
-| `/health/context` | Current Test context is valid and storage is available; no last-known fallback |
-| Current Unit product routes | `501 NOT_IMPLEMENTED`; never fake empty records |
-| Foreign Unit product routes | `404 UNIT_NOT_CURRENT` |
-| Product queries without context | `503 CURRENT_UNIT_CONTEXT_UNAVAILABLE` |
-| Brake namespace / public admin paths | `404 NOT_FOUND` |
+| `GET /health/live` | HTTP process answers |
+| `GET /health/ready` | Known SQLite product schema/storage; `scope: TIRE_PRODUCT`, schema 2 |
+| `GET /health/context` | Valid current binding, separate from process/storage health |
+| `POST /api/v1/tire/messages` | One validated message, transaction committed before ACK |
+| `GET /api/v1/tire/units/{systemUid}/assessments` | Assessment records |
+| `GET /api/v1/tire/units/{systemUid}/events` | Band-change records |
+| `GET /api/v1/tire/units/{systemUid}/advisories` | Advisory facts, not inferred driver receipt |
+| `GET /api/v1/tire/units/{systemUid}/function-status` | Function-team reports, stale after 90 seconds |
+| `GET /api/v1/tire/stream?systemUid=...` | SSE notification only; REST reread is authoritative |
 
-Ingestion, all product projections, SSE, qualification CPU commands, dashboard
-and D4-019 product cleanup are not implemented. No submitted message can receive
-a durable ACK. Foundation readiness is not product-query, service or vehicle
-readiness. Before P7 opens ingestion, real packaged Tire migrations, validation,
-durable receipt/query/cleanup transactions and their tests must replace this
-foundation-only gate.
+Absent context returns `503 CURRENT_UNIT_CONTEXT_UNAVAILABLE`; foreign UID
+returns `404 UNIT_NOT_CURRENT`. Valid scope with no records returns an empty
+list. Browser-origin ingestion is forbidden; public admin and Brake paths
+return 404. Unimplemented product endpoints, including CPU qualification
+control, return `501 NOT_IMPLEMENTED`, never simulated success.
 
-The persistent database uses WAL, FULL synchronous mode, foreign keys and a
-5-second busy timeout. It contains exactly one `schema_version` bookkeeping
-table, not empty fabricated product tables. Initialization and repeat startup
-are deterministic; unknown versions, extra schema objects or mismatched ledger
-fail closed without deleting anything. A process restart retains the owned
-database and current-run context. The foundation is not a historical archive.
+The four kinds are `TIRE_HEALTH_ASSESSMENT`, `TIRE_CONDITION_BAND_CHANGED`,
+`TIRE_ADVISORY_FACT` and `TIRE_FUNCTION_STATUS`. Packaged closed schemas are
+snapshots of the Solution contracts, including bounded canonical `X.Y.Z`
+release versions. Duplicate JSON keys, malformed UTF-8, unknown fields,
+schema/digest errors and oversized messages fail without a receipt. Wire
+maximum is 32 KiB; canonical maximum is 16 KiB, or 8 KiB for status. Optional
+gzip does not change logical digest. Request timeout is 10 seconds, not an
+intentional delay on successful requests.
 
-## Context
-
-Demo Control owns one dedicated read-only mounted directory. The backend
-rereads `current-unit-context.json` on demand, including after an atomic rename:
-
-```json
-{
-  "schemaVersion": 1,
-  "contractVersion": "1.0.0",
-  "source": "CURRENT_RUN_PROVISIONING_JOURNAL",
-  "testUnit": {
-    "systemUid": "current-test-system-uid",
-    "unitRole": "VALIDATION",
-    "userFacingRole": "Test Vehicle"
-  }
-}
-```
-
-This example is documentation, not runtime data. Actual values come only from
-the provisioning journal. A distinct optional `productionUnit` follows the
-existing engineering context with role `PRODUCTION`/label `Production Vehicle`;
-Test is always required. Missing, unreadable, duplicate-key, malformed,
-Production-only or over-4096-byte inputs have no usable scope. Clearing context
-does not delete data. Reported UIDs are correlation, not authentication.
-
-## Exact container inputs
-
-Node 26.0.0 is the only runtime dependency (built-in HTTP/SQLite); no npm
-package install is required. `Dockerfile` pins the official Linux ARM64 image
-by digest; `container-build.json` records the source recipe. No built image ID
-or qualification is claimed. Engineering preparation may run:
+New records return 201; identical retry returns 200 with original receipt/time:
 
 ```text
-docker build --platform linux/arm64 --iidfile <owned-image-id-file> /path/to/tire-health-cloud
+{schemaVersion:1, contractVersion:"1.0.0", receiptId,
+ messageKeySha256, contentSha256,
+ state:"DURABLE_ACCEPTED"|"DUPLICATE_ACCEPTED", receivedAt}
 ```
 
-Demo Control records the resulting local immutable `sha256:...` image ID and
-generates Compose input. No `latest`, pull or build fallback is permitted.
+Key digest is SHA-256 of the RFC8785 D4-019 idempotency-key array. A same-key
+changed envelope returns 409 and is quarantined. ACK proves durable storage
+only, not Gateway application, driver acknowledgement or OEM approval.
+
+Queries accept `limit` (1–100, default 50) and opaque `cursor`; unsupported or
+duplicate parameters fail. Fixed highest-record boundary and descending order
+make pagination stable and bound to UID/category. Result:
+
+```text
+{schemaVersion:1, contractVersion:"1.0.0", unitSystemUid,
+ items:[{message, backendReceivedAt, deliveryState:"DURABLE_ACCEPTED"}],
+ nextCursor:string|null}
+```
+
+Function-status items additionally contain
+`authority:"FUNCTION_TEAM_REPORTED_STATUS"` and `stale:boolean`, never inferred
+AosCore lifecycle state. SSE sends only `{"reread":true}` with at most 16 connections
+and backpressure disconnect; it never replaces authoritative reads.
+
+## Storage and current context
+
+Node 26.0.0 uses built-in HTTP/SQLite and no npm dependencies. SQLite uses WAL,
+FULL synchronous, foreign keys and a 5000 ms busy timeout. Exact known foundation
+schema 1 migrates transactionally to product schema 2 before readiness. The
+six record categories are `messages`, `assessments`, `events`, `advisories`,
+`functionStatus`, `quarantine`. Ledger/schema/integrity are checked. Unknown
+versions/objects fail closed without destructive reset or downgrade.
+
+Demo Control atomically replaces its owned read-only context file:
+
+```text
+{schemaVersion:1, contractVersion:"1.0.0",
+ source:"CURRENT_RUN_PROVISIONING_JOURNAL",
+ testUnit:{systemUid, unitRole:"VALIDATION", userFacingRole:"Test Vehicle"},
+ productionUnit?:{systemUid, unitRole:"PRODUCTION", userFacingRole:"Production Vehicle"}}
+```
+
+Actual UIDs come only from the current journal. Test is required; distinct
+optional Production preserves engineering mode. Missing/malformed/duplicate-key
+or oversized context has no usable scope. There is no last-known fallback.
+Clearing context does not erase data. UID is correlation, not authenticated
+identity: production authentication is outside the isolated first-demo contract.
+
+## Private cleanup and whole-store proof
+
+The source package declares
+`aosedgeDemo.privateCleanupProtocol: "tire-product-v1"`. Demo Control must bind
+this capability to the immutable built backend image; old foundation artifacts
+cannot claim product cleanup. No live image was rebuilt in this checkpoint.
+
+Only owned Unix socket `/tmp/demo-backend/admin.sock` exposes cleanup. Existing
+entrypoint accepts `--admin-operation preview`, `execute`, `empty-proof`:
+one JSON request on stdin, `{status,body}` on stdout. Tokens do not belong in
+CLI arguments, logs or a public endpoint.
+
+Every input has `{schemaVersion:1,contractVersion:"1.0.0"}`. Preview adds
+`systemUids`; execute adds those UIDs and `confirmationToken`. Accept exact
+current Test alone or all current-context UIDs. Reject empty, duplicate,
+foreign or Production-only selectors. This implements the accepted Studio
+Test-retirement amendment without deleting optional peer data. The retiring
+Test binding must remain until cleanup is complete.
+
+Preview body keys: `schemaVersion`, `systemUids`, `recordCounts`,
+`recordSetSha256`, `nonmatchingRecordCounts`, `nonmatchingRecordSetSha256`,
+`confirmationToken`, `expiresAt`. Token TTL is 60 seconds, with at most 16 in memory.
+Any selected or nonmatching record-set change rejects stale execution.
+Execute deletes in one transaction and returns:
+
+```text
+{schemaVersion:1, contractVersion:"1.0.0", state:"CLEANED", systemUids,
+ deletedRecordCounts, remainingRecordCounts, nonmatchingRecordCounts,
+ nonmatchingRecordSetSha256, completedAt}
+```
+
+Read-only whole-store proof needs no UID context:
+
+```text
+{schemaVersion:1, contractVersion:"1.0.0", databaseSchemaVersion:2,
+ state:"EMPTY"|"NONEMPTY", recordCounts, observedAt}
+```
+
+All count objects have exactly the six category keys above. Empty means six
+zero counts plus supported schema/integrity, not an opaque digest assumption.
+After product migration, old `foundation-proof` fails closed. Product cleanup
+and empty proof must precede any separately authorized owned-volume reset.
+Cleanup never deletes volumes, VM overlays, Cloud Units/audit or Brake data.
+Normal stop retains data.
+
+## Container integration and source tests
+
+Existing pinned Docker recipe is recorded by `container-build.json`, with
+`imageId:null` until Demo Control builds it. Container inputs remain:
 
 | Input | Value |
 | --- | --- |
-| Container / network | `aosedge-demo-tire-cloud` / `aosedge-demo-tire-cloud-v1` |
-| Named volume | `aosedge_demo_tire_cloud_v1:/data` |
+| Entrypoint | `node /app/src/main.mjs` |
+| Container/network | `aosedge-demo-tire-cloud` / `aosedge-demo-tire-cloud-v1` |
+| Volume | `aosedge_demo_tire_cloud_v1:/data` |
 | Host publication | `127.0.0.1:18092:18092` |
-| Context directory | Dedicated owned directory, read-only at `/run/demo-control/context` |
 | Database | `/data/tire-health.sqlite` |
-| Private admin | `/tmp/demo-backend/admin.sock` |
-| Restart | `unless-stopped` |
-| Startup | `docker compose up --detach --no-build --pull never --wait` |
+| Context mount | Dedicated read-only directory at `/run/demo-control/context` |
 
-The nonroot `node` user owns `/data` and `/tmp/demo-backend`. Entrypoint:
-`node /app/src/main.mjs`; default args:
+Runtime arguments:
 
 ```text
 --runtime-mode container --port 18092
@@ -100,31 +156,13 @@ The nonroot `node` user owns `/data` and `/tmp/demo-backend`. Entrypoint:
 --context-path /run/demo-control/context/current-unit-context.json
 ```
 
-Only explicit container mode binds internally to `0.0.0.0`; native mode stays
-on `127.0.0.1` and has no arbitrary host flag. Native tests use explicit temporary
-paths and port 0. Demo Control must enforce loopback-only Docker publication,
-separate volumes/networks and no host networking/socket/credential mounts.
-The healthcheck uses process/storage readiness, not current-Test context, so
-Create may prepare the backend before Provision. No UI on 18082 is served yet.
+Nonroot `node` owns database/socket directories. Only container mode binds
+internally to 0.0.0.0; native mode is loopback. Demo Control preserves separate
+volumes/networks and loopback host publication, with no host-network,
+Docker-socket or credential mount. Healthcheck is process/storage health:
+Create can start before Provision. No dashboard on 18082 is served yet.
 
-## Foundation-only Retire proof
-
-The fixed private entrypoint supports:
-
-```text
-docker exec aosedge-demo-tire-cloud node /app/src/main.mjs --admin-operation foundation-proof
-```
-
-This uses a private Unix request to the running foundation and returns a
-read-only proof: `scope: FOUNDATION_ONLY`, `productIngestion: false`, known
-schema, no product tables/records and no unknown schema objects. It does not
-delete data, manufacture a D4-019 cleanup receipt or implement the product
-cleanup API. Demo Control may use a successful proof, exact owned-volume
-identity and stopped owner for its separately authorized foundation reset.
-Any unknown table/version makes the proof fail. P7 must replace this path with
-real scoped product cleanup before accepting any product record.
-
-Normal stop never removes the named volume. Docker image build/start, restart,
-LAN-negative and guest-route qualification remain unperformed in this source
-increment. Targeted host tests run with `node --test test/*.test.mjs` and do not
-contact Cloud, VMs or Docker.
+`node --test test/*.test.mjs` uses temporary databases and ephemeral loopback
+ports, never Cloud/VM/Docker. Real container/guest-route, restart/cleanup,
+LAN-negative isolation, dashboard and CPU-control qualification remain separate
+acceptance through Demo Control.
