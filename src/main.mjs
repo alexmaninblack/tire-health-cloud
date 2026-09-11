@@ -82,6 +82,16 @@ export async function startBackend(options) {
   let database, store, reason = "DATABASE_UNAVAILABLE";
   try { database = openStore(options.databasePath); store = new TireStore(database, () => readBinding(options.contextPath)); reason = "READY"; }
   catch (error) { reason = error.message === "UNKNOWN_NEWER_SCHEMA" ? "UNKNOWN_NEWER_SCHEMA" : "DATABASE_UNAVAILABLE"; }
+  let mockDatabase, mockStore;
+  try {
+    if (database) {
+      mockDatabase = openStore(options.databasePath + ".demo-mock");
+      mockStore = new TireStore(mockDatabase, () => {
+        const binding = readBinding(options.contextPath);
+        return binding ? {...binding, systemUids: [binding.testSystemUid]} : null;
+      });
+    }
+  } catch { mockDatabase?.close(); mockDatabase = undefined; }
   const readiness = () => {
     if (database) {
       try { store.ready(); }
@@ -101,6 +111,24 @@ export async function startBackend(options) {
     if (req.method === "GET" && path === "/health/live") return json(res, 200, {status: "LIVE"});
     if (req.method === "GET" && path === "/health/ready") { const value = readiness(); return json(res, value.ready ? 200 : 503, value); }
     if (req.method === "GET" && path === "/health/context") { const value = contextReadiness(); return json(res, value.ready ? 200 : 503, value); }
+    if (path.startsWith("/api/v1/tire/demo-mock/")) {
+      res.setHeader("x-aos-demo-source", "MOCK");
+      if (!mockDatabase || !mockStore) return error(res, 503, "MOCK_STORAGE_UNAVAILABLE");
+      const binding = readBinding(options.contextPath);
+      if (!binding) return error(res, 503, "CURRENT_UNIT_CONTEXT_UNAVAILABLE");
+      if (req.method === "POST" && path === "/api/v1/tire/demo-mock/messages") {
+        if (req.headers["x-aos-demo-source"] !== "MOCK" || req.headers.origin !== undefined || req.headers["sec-fetch-mode"] !== undefined) return error(res, 403, "EXPLICIT_SERVICE_MOCK_REQUIRED");
+        const result = mockStore.ingest(await body(req)); return json(res, result.status, result.body);
+      }
+      if (req.method === "GET" && path === "/api/v1/tire/demo-mock/summary") {
+        const uid = binding.testSystemUid;
+        return json(res, 200, {source: "DEMO_MOCK", vehicleTelemetry: false, unitSystemUid: uid,
+          counts: mockDatabase.prepare("SELECT kind, count(*) AS count FROM messages WHERE system_uid=? GROUP BY kind ORDER BY kind").all(uid),
+          records: mockDatabase.prepare("SELECT canonical, received_at FROM messages WHERE system_uid=? ORDER BY id DESC LIMIT 3").all(uid).map(row => ({message: JSON.parse(row.canonical), backendReceivedAt: row.received_at}))});
+      }
+      return error(res, 404, "NOT_FOUND");
+    }
+    if (req.headers["x-aos-demo-source"] !== undefined) return error(res, 403, "MOCK_DATA_CANNOT_ENTER_LIVE_INGESTION");
     if (!path.startsWith("/api/v1/tire/") || path.includes("/admin/")) return error(res, 404, "NOT_FOUND");
     if (!readiness().ready) return error(res, 503, "TEMPORARILY_UNAVAILABLE");
     const scoped = /^\/api\/v1\/tire\/units\/([^/]+)\/(assessments|events|advisories|function-status)$/.exec(path);
@@ -145,12 +173,16 @@ export async function startBackend(options) {
     try {
       if (!database) return error(res, 503, "TEMPORARILY_UNAVAILABLE");
       if (req.url === "/internal/foundation-proof") {req.resume(); return json(res, 200, foundationProof(database));}
+      const mock = req.url?.startsWith("/api/v1/tire/demo-mock/admin/");
+      const adminStore = mock ? mockStore : store;
+      if (!adminStore) return error(res, 503, "MOCK_STORAGE_UNAVAILABLE");
+      const path = mock ? req.url.replace("/demo-mock/", "/") : req.url;
       const value = strictJson(await body(req, 4096), 4096);
-      const keys = req.url === "/api/v1/tire/admin/storage/empty-proof" ? ["schemaVersion", "contractVersion"] : req.url?.endsWith("cleanup-preview") ? ["schemaVersion", "contractVersion", "systemUids"] : ["schemaVersion", "contractVersion", "systemUids", "confirmationToken"];
+      const keys = path === "/api/v1/tire/admin/storage/empty-proof" ? ["schemaVersion", "contractVersion"] : path?.endsWith("cleanup-preview") ? ["schemaVersion", "contractVersion", "systemUids"] : ["schemaVersion", "contractVersion", "systemUids", "confirmationToken"];
       if (!value || Object.keys(value).sort().join() !== keys.sort().join() || value.schemaVersion !== 1 || value.contractVersion !== "1.0.0") throw new Error("INVALID_REQUEST");
-      if (req.url === "/api/v1/tire/admin/storage/empty-proof") return json(res, 200, store.emptyProof());
-      if (req.url === "/api/v1/tire/admin/current-run/cleanup-preview") return json(res, 200, store.preview(value.systemUids));
-      if (req.url === "/api/v1/tire/admin/current-run/cleanup") return json(res, 200, store.execute(value.systemUids, value.confirmationToken));
+      if (path === "/api/v1/tire/admin/storage/empty-proof") return json(res, 200, adminStore.emptyProof());
+      if (path === "/api/v1/tire/admin/current-run/cleanup-preview") return json(res, 200, adminStore.preview(value.systemUids));
+      if (path === "/api/v1/tire/admin/current-run/cleanup") return json(res, 200, adminStore.execute(value.systemUids, value.confirmationToken));
       return error(res, 404, "NOT_FOUND");
     } catch (e) {return failure(res, e.message);}
   });
@@ -161,14 +193,14 @@ export async function startBackend(options) {
   } catch (error) {
     if (server.listening) await close(server);
     if (admin.listening) await close(admin);
-    database?.close();
+    database?.close(); mockDatabase?.close();
     throw error;
   }
   let stopped = false;
   return {host, port: server.address().port, readiness, contextReadiness, shutdown: async () => {
     if (stopped) return;
     stopped = true;
-    await close(server); await close(admin); database?.close(); database = undefined;
+    await close(server); await close(admin); database?.close(); database = undefined; mockDatabase?.close(); mockDatabase = undefined;
     rmSync(options.adminSocketPath, {force: true});
   }};
 }
@@ -186,11 +218,14 @@ export function inspectFoundation(socketPath = ADMIN_SOCKET) {
   });
 }
 export function adminOperation(operation, input, socketPath = ADMIN_SOCKET) {
+  const mocked = operation.startsWith("mock-");
+  if (mocked) operation = operation.slice(5);
   const routes = {preview: "/api/v1/tire/admin/current-run/cleanup-preview", execute: "/api/v1/tire/admin/current-run/cleanup", "empty-proof": "/api/v1/tire/admin/storage/empty-proof"};
   if (!Object.hasOwn(routes, operation)) throw new Error("invalid admin operation");
   return new Promise((done, reject) => {
     const bytes = JSON.stringify(input);
-    const call = request({socketPath, path: routes[operation], method: "POST", headers: {"content-type": "application/json", "content-length": Buffer.byteLength(bytes)}}, response => {
+    const path = mocked ? routes[operation].replace("/tire/admin/", "/tire/demo-mock/admin/") : routes[operation];
+    const call = request({socketPath, path, method: "POST", headers: {"content-type": "application/json", "content-length": Buffer.byteLength(bytes)}}, response => {
       let text = "";
       response.on("data", chunk => {text += chunk; if (Buffer.byteLength(text) > 8192) call.destroy(new Error("invalid admin response"));});
       response.on("error", reject); response.on("end", () => {try {done({status: response.statusCode, body: strictJson(text, 8192)});} catch {reject(new Error("invalid admin response"));}});
@@ -200,7 +235,7 @@ export function adminOperation(operation, input, socketPath = ADMIN_SOCKET) {
 }
 export async function main() {
   const args = process.argv.slice(2);
-  if (args.length === 2 && args[0] === "--admin-operation" && ["preview", "execute", "empty-proof"].includes(args[1])) {
+  if (args.length === 2 && args[0] === "--admin-operation" && ["preview", "execute", "empty-proof", "mock-preview", "mock-execute", "mock-empty-proof"].includes(args[1])) {
     let text = ""; for await (const chunk of process.stdin) {text += chunk; if (Buffer.byteLength(text) > 4096) throw new Error("invalid admin request");}
     const result = await adminOperation(args[1], strictJson(text, 4096));
     process.stdout.write(JSON.stringify(result) + "\n"); process.exitCode = result.status === 200 ? 0 : 1; return;
