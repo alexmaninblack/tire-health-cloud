@@ -35,7 +35,10 @@ export function canonical(value) {
 const schemas = Object.fromEntries([
   ["TIRE_HEALTH_ASSESSMENT", "tire-health-assessment"], ["TIRE_CONDITION_BAND_CHANGED", "tire-health-event"],
   ["TIRE_ADVISORY_FACT", "tire-advisory-fact"], ["TIRE_FUNCTION_STATUS", "tire-function-status"]
-].map(([kind, name]) => [kind, JSON.parse(readFileSync(new URL(`./schemas/${name}.schema.json`, import.meta.url)))]));
+].flatMap(([kind, name]) => [1, 2].map(version => [
+  kind + ":" + version,
+  JSON.parse(readFileSync(new URL("./schemas/" + name + (version === 2 ? ".v2" : "") + ".schema.json", import.meta.url)))
+])));
 function dateTime(value) {
   const match = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)(?:\.\d+)?(?:Z|([+-])(\d\d):(\d\d))$/.exec(value);
   if (!match || !Number.isFinite(Date.parse(value))) return false;
@@ -80,7 +83,8 @@ function valid(schema, value, root = schema) {
 export function validateMessage(bytes) {
   let message;
   try {message = strictJson(bytes);} catch (e) {throw new Error(e.message === "MESSAGE_TOO_LARGE" ? "MESSAGE_TOO_LARGE" : "INVALID_MESSAGE");}
-  const schema = Object.hasOwn(schemas, message?.messageType) ? schemas[message.messageType] : undefined;
+  const schemaKey = message?.messageType + ":" + message?.schemaVersion;
+  const schema = Object.hasOwn(schemas, schemaKey) ? schemas[schemaKey] : undefined;
   if (!schema || !valid(schema, message) || digest(canonical(message.content)) !== message.contentSha256) throw new Error("INVALID_MESSAGE");
   const encoded = canonical(message);
   if (Buffer.byteLength(encoded) > (message.messageType === "TIRE_FUNCTION_STATUS" ? 8192 : 16384)) throw new Error("MESSAGE_TOO_LARGE");

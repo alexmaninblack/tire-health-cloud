@@ -1,0 +1,38 @@
+{
+  "$comment": "SPDX-FileCopyrightText: 2026 maninblack; SPDX-License-Identifier: MIT",
+  "schemaVersion": 2,
+  "contractVersion": "2.0.0",
+  "messageType": "TIRE_HEALTH_ASSESSMENT",
+  "assessmentId": "8c6e4a48-9561-5dd8-8036-8a842d92cec8",
+  "unitSystemUid": "validation-system-20260822",
+  "unitRole": "VALIDATION",
+  "sourceExerciseId": "a671fe3e-07b7-4bb8-b1d6-6d86a988b61f",
+  "sourceEventTime": "2026-08-22T20:00:00Z",
+  "serviceVersion": "18.0.0",
+  "vdpContractVersion": "3.0.0",
+  "vdpContractSha256": "8e58e18e9d99a13409af6813e573cbe1c690e439ad746224426801f6b080c871",
+  "modelConfigSha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "content": {
+    "modelId": "tire-condition-demo-v1",
+    "provenance": "DEMO_SYNTHETIC",
+    "validActiveSamples": 40,
+    "loadBps": 6600,
+    "conditionScore": 34,
+    "confidencePercent": 100,
+    "previousBand": "NOT_EVALUATED",
+    "currentBand": "REPLACEMENT_RECOMMENDED",
+    "features": {
+      "longitudinalSlipBps": 8000,
+      "lateralSlipBps": 7000,
+      "wheelDispersionBps": 5000,
+      "slipPersistenceBps": 5500
+    }
+  },
+  "contentSha256": "aec156385dd6c56ba0f3a0a7ce917e38f6e31d516599108ed35515968723301f",
+  "serviceInstance": {
+    "serviceId": "fixture-service",
+    "subjectId": "fixture-subject",
+    "instanceIndex": 0,
+    "instanceId": "fixture-instance-1"
+  }
+}

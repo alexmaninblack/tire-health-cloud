@@ -84,7 +84,7 @@ export class TireStore {
     const rows = this.db.prepare(`SELECT m.* FROM ${categories[category]} p JOIN messages m ON m.id=p.message_id WHERE m.system_uid=? AND m.id<=? AND m.id<? ORDER BY m.id DESC LIMIT ?`).all(uid, anchor, before, limit + 1);
     const items = rows.slice(0, limit).map(r => ({message: JSON.parse(r.canonical), backendReceivedAt: r.received_at, deliveryState: "DURABLE_ACCEPTED",
       ...(category === "functionStatus" ? {authority: "FUNCTION_TEAM_REPORTED_STATUS", stale: this.clock().getTime() - Date.parse(JSON.parse(r.canonical).observedAt) > 90000} : {})}));
-    return {schemaVersion: 1, contractVersion: "1.0.0", unitSystemUid: uid, items, nextCursor: rows.length > limit ? Buffer.from(canonical({uid, category, anchor, before: rows[limit - 1].id})).toString("base64url") : null};
+    return {schemaVersion: 2, contractVersion: "2.0.0", unitSystemUid: uid, items, nextCursor: rows.length > limit ? Buffer.from(canonical({uid, category, anchor, before: rows[limit - 1].id})).toString("base64url") : null};
   }
   selector(systemUids) {
     const binding = this.currentBinding();

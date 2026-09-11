@@ -8,6 +8,17 @@ receipts, queries and private cleanup replace the foundation-only gate.
 This source checkpoint is not a built/deployed/qualified backend or calibrated
 Tire model. Brake identity, database and failure boundary are not shared.
 
+The N3 consumer increment accepts legacy product revision 1 / 1.0.0 and native
+revision 2 / 2.0.0 through separate closed schemas. Native messages identify
+the package release and `serviceInstance` (`serviceId`, `subjectId`,
+`instanceIndex`, `instanceId`); even the band-change event carries its own
+identity. OCI digest fields are rejected, not fabricated. Reported identity
+is correlation only, never authentication or Aos lifecycle authority.
+Legacy messages, original receipts and outbox retries remain unchanged;
+the existing canonical-message SQLite layout needs no migration.
+Producer/input migration and real Test integration remain open; no service
+or backend was deployed by these local source tests.
+
 ## Public contract
 
 | Route | Meaning |
@@ -54,7 +65,7 @@ duplicate parameters fail. Fixed highest-record boundary and descending order
 make pagination stable and bound to UID/category. Result:
 
 ```text
-{schemaVersion:1, contractVersion:"1.0.0", unitSystemUid,
+{schemaVersion:2, contractVersion:"2.0.0", unitSystemUid,
  items:[{message, backendReceivedAt, deliveryState:"DURABLE_ACCEPTED"}],
  nextCursor:string|null}
 ```

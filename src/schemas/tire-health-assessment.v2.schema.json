@@ -1,0 +1,210 @@
+{
+  "$comment": "SPDX-FileCopyrightText: 2026 maninblack; SPDX-License-Identifier: MIT",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aosedge-sdv-demo:tire-health-assessment:schema:v2",
+  "title": "Tire Health Assessment — Native service provenance",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "contractVersion",
+    "messageType",
+    "assessmentId",
+    "unitSystemUid",
+    "unitRole",
+    "sourceExerciseId",
+    "sourceEventTime",
+    "serviceVersion",
+    "vdpContractVersion",
+    "vdpContractSha256",
+    "modelConfigSha256",
+    "content",
+    "contentSha256",
+    "serviceInstance"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 2
+    },
+    "contractVersion": {
+      "const": "2.0.0"
+    },
+    "messageType": {
+      "const": "TIRE_HEALTH_ASSESSMENT"
+    },
+    "assessmentId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "unitSystemUid": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$(?![\\s\\S])"
+    },
+    "unitRole": {
+      "enum": [
+        "VALIDATION",
+        "PRODUCTION"
+      ]
+    },
+    "sourceExerciseId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "sourceEventTime": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "serviceVersion": {
+      "type": "string",
+      "maxLength": 32,
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$(?![\\s\\S])"
+    },
+    "vdpContractVersion": {
+      "type": "string",
+      "maxLength": 32,
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "vdpContractSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "modelConfigSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "content": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "modelId",
+        "provenance",
+        "validActiveSamples",
+        "loadBps",
+        "conditionScore",
+        "confidencePercent",
+        "previousBand",
+        "currentBand",
+        "features"
+      ],
+      "properties": {
+        "modelId": {
+          "const": "tire-condition-demo-v1"
+        },
+        "provenance": {
+          "const": "DEMO_SYNTHETIC"
+        },
+        "validActiveSamples": {
+          "type": "integer",
+          "minimum": 20,
+          "maximum": 120
+        },
+        "loadBps": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "conditionScore": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "confidencePercent": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "previousBand": {
+          "enum": [
+            "NOT_EVALUATED",
+            "GOOD",
+            "INSPECTION_RECOMMENDED",
+            "REPLACEMENT_RECOMMENDED"
+          ]
+        },
+        "currentBand": {
+          "enum": [
+            "GOOD",
+            "INSPECTION_RECOMMENDED",
+            "REPLACEMENT_RECOMMENDED"
+          ]
+        },
+        "features": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "longitudinalSlipBps",
+            "lateralSlipBps",
+            "wheelDispersionBps",
+            "slipPersistenceBps"
+          ],
+          "properties": {
+            "longitudinalSlipBps": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000
+            },
+            "lateralSlipBps": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000
+            },
+            "wheelDispersionBps": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000
+            },
+            "slipPersistenceBps": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000
+            }
+          }
+        }
+      }
+    },
+    "contentSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "serviceInstance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "serviceId",
+        "subjectId",
+        "instanceIndex",
+        "instanceId"
+      ],
+      "properties": {
+        "serviceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$(?![\\s\\S])"
+        },
+        "subjectId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$(?![\\s\\S])"
+        },
+        "instanceIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "instanceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$(?![\\s\\S])"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

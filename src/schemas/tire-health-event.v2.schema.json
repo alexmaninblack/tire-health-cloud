@@ -1,0 +1,142 @@
+{
+  "$comment": "SPDX-FileCopyrightText: 2026 maninblack; SPDX-License-Identifier: MIT",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aosedge-sdv-demo:tire-health-event:schema:v2",
+  "title": "Tire Health Band Change Event — Native service provenance",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "contractVersion",
+    "messageType",
+    "eventId",
+    "assessmentId",
+    "unitSystemUid",
+    "sourceEventTime",
+    "content",
+    "contentSha256",
+    "serviceVersion",
+    "serviceInstance",
+    "unitRole"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 2
+    },
+    "contractVersion": {
+      "const": "2.0.0"
+    },
+    "messageType": {
+      "const": "TIRE_CONDITION_BAND_CHANGED"
+    },
+    "eventId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "assessmentId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "unitSystemUid": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$(?![\\s\\S])"
+    },
+    "sourceEventTime": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "content": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "eventType",
+        "previousBand",
+        "currentBand",
+        "conditionScore",
+        "confidencePercent"
+      ],
+      "properties": {
+        "eventType": {
+          "const": "TIRE_CONDITION_BAND_CHANGED"
+        },
+        "previousBand": {
+          "enum": [
+            "NOT_EVALUATED",
+            "GOOD",
+            "INSPECTION_RECOMMENDED",
+            "REPLACEMENT_RECOMMENDED"
+          ]
+        },
+        "currentBand": {
+          "enum": [
+            "GOOD",
+            "INSPECTION_RECOMMENDED",
+            "REPLACEMENT_RECOMMENDED"
+          ]
+        },
+        "conditionScore": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "confidencePercent": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        }
+      }
+    },
+    "contentSha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "serviceVersion": {
+      "type": "string",
+      "maxLength": 32,
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$(?![\\s\\S])"
+    },
+    "serviceInstance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "serviceId",
+        "subjectId",
+        "instanceIndex",
+        "instanceId"
+      ],
+      "properties": {
+        "serviceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$(?![\\s\\S])"
+        },
+        "subjectId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$(?![\\s\\S])"
+        },
+        "instanceIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "instanceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:-]*$(?![\\s\\S])"
+        }
+      }
+    },
+    "unitRole": {
+      "enum": [
+        "VALIDATION",
+        "PRODUCTION"
+      ]
+    }
+  }
+}
