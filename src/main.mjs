@@ -9,6 +9,7 @@ import { readContext, readBinding } from "./context.mjs";
 import { foundationProof, openStore, TireStore } from "./store.mjs";
 import {strictJson} from "./protocol.mjs";
 import {gunzipSync} from "node:zlib";
+import {DemoResetStore} from "./demo-reset.ts";
 
 export const LOOPBACK_HOST = "127.0.0.1";
 export const CONTAINER_HOST = "0.0.0.0";
@@ -36,6 +37,7 @@ function error(response, status, code) {
   json(response, status, {schemaVersion: 1, contractVersion: "1.0.0", errorCode: code, retryable: status === 503});
 }
 function failure(response, reason) {
+  if (reason.startsWith("RESET_")) return error(response, reason === "RESET_INVALID_REQUEST" ? 400 : 409, reason);
   const known = {INVALID_MESSAGE: 422, MESSAGE_TOO_LARGE: 413, UNIT_NOT_CURRENT: 404, CURRENT_UNIT_CONTEXT_UNAVAILABLE: 503, INVALID_REQUEST: 400, INVALID_SELECTOR: 400, INVALID_PREVIEW: 409, STALE_PREVIEW: 409};
   error(response, known[reason] ?? 503, Object.hasOwn(known, reason) ? reason : "TEMPORARILY_UNAVAILABLE");
 }
@@ -79,8 +81,8 @@ export async function startBackend(options) {
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new TypeError("invalid backend port");
   const host = runtimeMode === "container" ? CONTAINER_HOST : LOOPBACK_HOST;
   await prepareAdminSocket(options.adminSocketPath);
-  let database, store, reason = "DATABASE_UNAVAILABLE";
-  try { database = openStore(options.databasePath); store = new TireStore(database, () => readBinding(options.contextPath)); reason = "READY"; }
+  let database, store, resets, reason = "DATABASE_UNAVAILABLE";
+  try { database = openStore(options.databasePath); store = new TireStore(database, () => readBinding(options.contextPath)); resets = new DemoResetStore(database, () => readBinding(options.contextPath)?.testSystemUid); reason = "READY"; }
   catch (error) { reason = error.message === "UNKNOWN_NEWER_SCHEMA" ? "UNKNOWN_NEWER_SCHEMA" : "DATABASE_UNAVAILABLE"; }
   let mockDatabase, mockStore;
   try {
@@ -97,7 +99,7 @@ export async function startBackend(options) {
       try { store.ready(); }
       catch { database.close(); database = undefined; reason = "DATABASE_UNAVAILABLE"; }
     }
-    return {ready: !!database, reason, schemaVersion: database ? 2 : null, scope: "TIRE_PRODUCT", productIngestion: !!database};
+    return {ready: !!database, reason, schemaVersion: database ? 3 : null, scope: "TIRE_PRODUCT", productIngestion: !!database};
   };
   const contextReadiness = () => {
     const systemUids = readContext(options.contextPath);
@@ -131,6 +133,15 @@ export async function startBackend(options) {
     if (req.headers["x-aos-demo-source"] !== undefined) return error(res, 403, "MOCK_DATA_CANNOT_ENTER_LIVE_INGESTION");
     if (!path.startsWith("/api/v1/tire/") || path.includes("/admin/")) return error(res, 404, "NOT_FOUND");
     if (!readiness().ready) return error(res, 503, "TEMPORARILY_UNAVAILABLE");
+    // These fixed producer routes cannot create commands. Creation is only
+    // on the separate 0600 Unix admin listener below, never this TCP server.
+    if (req.method === "POST" && ["/api/v1/tire/demo-control/poll", "/api/v1/tire/demo-control/ack"].includes(path)) {
+      if (req.headers.origin !== undefined || req.headers["sec-fetch-mode"] !== undefined) return error(res, 403, "BROWSER_INGESTION_FORBIDDEN");
+      const value = strictJson(await body(req, 4096), 4096);
+      return json(res, 200, path.endsWith("/poll") ? resets.poll(value) : resets.acknowledge(value));
+    }
+    const resetStatus = /^\/api\/v1\/tire\/units\/([^/]+)\/demo-reset$/.exec(path);
+    if (resetStatus && req.method === "GET") return json(res, 200, resets.status(decodeURIComponent(resetStatus[1])));
     const scoped = /^\/api\/v1\/tire\/units\/([^/]+)\/(assessments|events|advisories|function-status)$/.exec(path);
     if (scoped) {
       const context = contextReadiness();
@@ -178,6 +189,9 @@ export async function startBackend(options) {
       if (!adminStore) return error(res, 503, "MOCK_STORAGE_UNAVAILABLE");
       const path = mock ? req.url.replace("/demo-mock/", "/") : req.url;
       const value = strictJson(await body(req, 4096), 4096);
+      // This server is bound only by listen(admin, options.adminSocketPath),
+      // then chmod 0600. Do not move command creation to the TCP handler.
+      if (req.url === "/api/v1/tire/admin/demo-reset") return json(res, 200, resets.create(value));
       const keys = path === "/api/v1/tire/admin/storage/empty-proof" ? ["schemaVersion", "contractVersion"] : path?.endsWith("cleanup-preview") ? ["schemaVersion", "contractVersion", "systemUids"] : ["schemaVersion", "contractVersion", "systemUids", "confirmationToken"];
       if (!value || Object.keys(value).sort().join() !== keys.sort().join() || value.schemaVersion !== 1 || value.contractVersion !== "1.0.0") throw new Error("INVALID_REQUEST");
       if (path === "/api/v1/tire/admin/storage/empty-proof") return json(res, 200, adminStore.emptyProof());
@@ -220,8 +234,8 @@ export function inspectFoundation(socketPath = ADMIN_SOCKET) {
 export function adminOperation(operation, input, socketPath = ADMIN_SOCKET) {
   const mocked = operation.startsWith("mock-");
   if (mocked) operation = operation.slice(5);
-  const routes = {preview: "/api/v1/tire/admin/current-run/cleanup-preview", execute: "/api/v1/tire/admin/current-run/cleanup", "empty-proof": "/api/v1/tire/admin/storage/empty-proof"};
-  if (!Object.hasOwn(routes, operation)) throw new Error("invalid admin operation");
+  const routes = {preview: "/api/v1/tire/admin/current-run/cleanup-preview", execute: "/api/v1/tire/admin/current-run/cleanup", "empty-proof": "/api/v1/tire/admin/storage/empty-proof", "demo-reset": "/api/v1/tire/admin/demo-reset"};
+  if (!Object.hasOwn(routes, operation) || (mocked && operation === "demo-reset")) throw new Error("invalid admin operation");
   return new Promise((done, reject) => {
     const bytes = JSON.stringify(input);
     const path = mocked ? routes[operation].replace("/tire/admin/", "/tire/demo-mock/admin/") : routes[operation];
@@ -235,7 +249,7 @@ export function adminOperation(operation, input, socketPath = ADMIN_SOCKET) {
 }
 export async function main() {
   const args = process.argv.slice(2);
-  if (args.length === 2 && args[0] === "--admin-operation" && ["preview", "execute", "empty-proof", "mock-preview", "mock-execute", "mock-empty-proof"].includes(args[1])) {
+  if (args.length === 2 && args[0] === "--admin-operation" && ["preview", "execute", "empty-proof", "mock-preview", "mock-execute", "mock-empty-proof", "demo-reset"].includes(args[1])) {
     let text = ""; for await (const chunk of process.stdin) {text += chunk; if (Buffer.byteLength(text) > 4096) throw new Error("invalid admin request");}
     const result = await adminOperation(args[1], strictJson(text, 4096));
     process.stdout.write(JSON.stringify(result) + "\n"); process.exitCode = result.status === 200 ? 0 : 1; return;

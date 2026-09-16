@@ -73,7 +73,7 @@ test("Tire keeps legacy and native bytes/receipts across reopen and rejects iden
       assert.equal(canonical(store.query(binding.testSystemUid, categories[index]).items[0].message), canonical(original));
     }
     assert.deepEqual(db.prepare("SELECT * FROM messages ORDER BY id").all(), originalRows);
-    assert.equal(db.prepare("PRAGMA user_version").get().user_version, 2);
+    assert.equal(db.prepare("PRAGMA user_version").get().user_version, 3);
     assert.equal(store.ready(), true);
   } finally {db.close(); rmSync(directory, {recursive: true, force: true});}
 });

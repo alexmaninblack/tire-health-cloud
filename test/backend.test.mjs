@@ -65,7 +65,7 @@ test("persistent first-create/restart and current-Test context rebinding", async
 });
 
 test("unknown schema and unknown table deny readiness and foundation-only removal proof", async () => {
-  for (const mutation of ["PRAGMA user_version=3", "CREATE TABLE product_data(value TEXT)"]) {
+  for (const mutation of ["PRAGMA user_version=4", "CREATE TABLE product_data(value TEXT)"]) {
     const directory = mkdtempSync(join(tmpdir(), "tire-schema-test-"));
     const options = {databasePath: join(directory, "data.sqlite"), adminSocketPath: join(directory, "admin.sock")};
     let app;
@@ -78,7 +78,7 @@ test("unknown schema and unknown table deny readiness and foundation-only remova
       assert.equal((await inspectFoundation(options.adminSocketPath)).status, 503);
       const observed = new DatabaseSync(options.databasePath);
       if (mutation.includes("CREATE")) assert.ok(observed.prepare("SELECT name FROM sqlite_schema WHERE name='product_data'").get());
-      else assert.equal(observed.prepare("PRAGMA user_version").get().user_version, 3);
+      else assert.equal(observed.prepare("PRAGMA user_version").get().user_version, 4);
       observed.close();
     } finally {if (app) await app.shutdown(); rmSync(directory, {recursive: true, force: true});}
   }
