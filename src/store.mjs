@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 import {DatabaseSync} from "node:sqlite";
 import {randomUUID, randomBytes} from "node:crypto";
-import {canonical, digest, validateMessage} from "./protocol.mjs";
+import {canonical, digest, validateMessage, strictJson} from "./protocol.mjs";
 import {resetSchema} from "./demo-reset.ts";
+import {FunctionObservationStore, functionObservationSchema} from "./function-observation.ts";
 
 const ledger = "CREATE TABLE schema_version (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL) STRICT";
 const schema = [ledger,
@@ -11,17 +12,18 @@ const schema = [ledger,
   ...["assessments", "condition_events", "advisory_facts", "function_status"].map(name => `CREATE TABLE ${name} (message_id INTEGER PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE) STRICT`),
   "CREATE TABLE quarantine (id INTEGER PRIMARY KEY AUTOINCREMENT, system_uid TEXT NOT NULL, message_key TEXT NOT NULL, message_digest TEXT NOT NULL, canonical TEXT NOT NULL, received_at TEXT NOT NULL, UNIQUE(message_key, message_digest)) STRICT"
 ];
-const categories = {messages: "messages", assessments: "assessments", events: "condition_events", advisories: "advisory_facts", functionStatus: "function_status", quarantine: "quarantine", resetProducers: "demo_reset_producers", resetCommands: "demo_reset_commands"};
+const categories = {messages: "messages", assessments: "assessments", events: "condition_events", advisories: "advisory_facts", functionStatus: "function_status", quarantine: "quarantine", resetProducers: "demo_reset_producers", resetCommands: "demo_reset_commands", functionObservations: "function_observations", functionObservationConflicts: "function_observation_conflicts"};
 const kinds = {TIRE_HEALTH_ASSESSMENT: "assessments", TIRE_CONDITION_BAND_CHANGED: "condition_events", TIRE_ADVISORY_FACT: "advisory_facts", TIRE_FUNCTION_STATUS: "function_status"};
-function validateSchema(database, version = 3) {
+function validateSchema(database, version = 4) {
   const actualVersion = database.prepare("PRAGMA user_version").get().user_version;
-  if (actualVersion > 3) throw new Error("UNKNOWN_NEWER_SCHEMA");
+  if (actualVersion > 4) throw new Error("UNKNOWN_NEWER_SCHEMA");
   const objects = database.prepare("SELECT sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' ORDER BY sql").all().map(r => r.sql);
-  if (actualVersion !== version || canonical(objects) !== canonical((version === 1 ? [ledger] : version === 2 ? schema : [...schema, ...resetSchema]).toSorted())) throw new Error("SCHEMA_INVALID");
+  if (actualVersion !== version || canonical(objects) !== canonical((version === 1 ? [ledger] : version === 2 ? schema : [...schema, ...resetSchema, ...(version === 4 ? functionObservationSchema : [])]).toSorted())) throw new Error("SCHEMA_INVALID");
   const rows = database.prepare("SELECT version, name, applied_at FROM schema_version ORDER BY version").all();
   if (rows.length !== version || rows[0]?.name !== "tire_lifecycle_foundation" || rows[0]?.version !== 1 ||
       (version >= 2 && (rows[1]?.version !== 2 || rows[1]?.name !== "tire_product_v1")) ||
-      (version === 3 && (rows[2]?.version !== 3 || rows[2]?.name !== "demo_scenario_reset")) || rows.some(r => !Number.isFinite(Date.parse(r.applied_at)))) throw new Error("SCHEMA_INVALID");
+      (version >= 3 && (rows[2]?.version !== 3 || rows[2]?.name !== "demo_scenario_reset")) ||
+      (version === 4 && (rows[3]?.version !== 4 || rows[3]?.name !== "function_observations")) || rows.some(r => !Number.isFinite(Date.parse(r.applied_at)))) throw new Error("SCHEMA_INVALID");
   if (database.prepare("PRAGMA quick_check").get().quick_check !== "ok" || database.prepare("PRAGMA foreign_key_check").all().length) throw new Error("SCHEMA_INVALID");
 }
 export function foundationProof(database) {
@@ -38,7 +40,7 @@ export function openStore(path) {
   try {
     db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;");
     let version = db.prepare("PRAGMA user_version").get().user_version;
-    if (version > 3) throw new Error("UNKNOWN_NEWER_SCHEMA");
+    if (version > 4) throw new Error("UNKNOWN_NEWER_SCHEMA");
     if (version === 0) {
       if (db.prepare("SELECT name FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'").all().length) throw new Error("SCHEMA_INVALID");
       transaction(db, () => {db.exec(ledger); db.prepare("INSERT INTO schema_version VALUES(1,'tire_lifecycle_foundation',?)").run(new Date().toISOString()); db.exec("PRAGMA user_version=1");}); version = 1;
@@ -49,15 +51,26 @@ export function openStore(path) {
     }
     if (version === 2) {
       validateSchema(db, 2);
-      transaction(db, () => {for (const sql of resetSchema) db.exec(sql); db.prepare("INSERT INTO schema_version VALUES(3,'demo_scenario_reset',?)").run(new Date().toISOString()); db.exec("PRAGMA user_version=3");});
+      transaction(db, () => {for (const sql of resetSchema) db.exec(sql); db.prepare("INSERT INTO schema_version VALUES(3,'demo_scenario_reset',?)").run(new Date().toISOString()); db.exec("PRAGMA user_version=3");}); version = 3;
+    }
+    if (version === 3) {
+      validateSchema(db, 3);
+      transaction(db, () => {for (const sql of functionObservationSchema) db.exec(sql); db.prepare("INSERT INTO schema_version VALUES(4,'function_observations',?)").run(new Date().toISOString()); db.exec("PRAGMA user_version=4");});
     }
     validateSchema(db); db.exec("BEGIN IMMEDIATE; UPDATE schema_version SET name=name WHERE version=2; ROLLBACK;"); return db;
   } catch (error) {db.close(); throw error;}
 }
 export class TireStore {
-  constructor(database, currentBinding, clock = () => new Date()) {this.db = database; this.currentBinding = currentBinding; this.clock = clock; this.previews = new Map();}
+  constructor(database, currentBinding, clock = () => new Date()) {this.db = database; this.currentBinding = currentBinding; this.clock = clock; this.previews = new Map(); this.functionObservations = new FunctionObservationStore(database, "tire", () => clock().toISOString());}
   ready() {validateSchema(this.db); return true;}
   ingest(bytes) {
+    const candidate = strictJson(bytes);
+    if (candidate?.messageType === "TIRE_FUNCTION_OBSERVATION") {
+      const binding = this.currentBinding();
+      if (!binding) throw new Error("CURRENT_UNIT_CONTEXT_UNAVAILABLE");
+      if (!binding.systemUids.includes(candidate.unitSystemUid)) throw new Error("UNIT_NOT_CURRENT");
+      return {...this.functionObservations.ingest(candidate, candidate.unitSystemUid === binding.testSystemUid ? "VALIDATION" : "PRODUCTION"), systemUid:candidate.unitSystemUid};
+    }
     const input = validateMessage(bytes), message = input.message, binding = this.currentBinding();
     if (!binding) throw new Error("CURRENT_UNIT_CONTEXT_UNAVAILABLE");
     if (!binding.systemUids.includes(message.unitSystemUid)) throw new Error("UNIT_NOT_CURRENT");
@@ -77,6 +90,10 @@ export class TireStore {
     });
   }
   query(uid, category, {limit = 50, cursor} = {}) {
+    if (category === "functionObservations") {
+      if (cursor !== undefined || !Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error("INVALID_REQUEST");
+      return this.functionObservations.query(uid, limit);
+    }
     if (!Number.isInteger(limit) || limit < 1 || limit > 100 || !["assessments", "events", "advisories", "functionStatus"].includes(category)) throw new Error("INVALID_REQUEST");
     let anchor = this.db.prepare("SELECT COALESCE(MAX(id),0) AS n FROM messages").get().n, before = anchor + 1;
     if (cursor) {
@@ -104,13 +121,13 @@ export class TireStore {
     const where = systemUids.length ? `system_uid ${matching ? "IN" : "NOT IN"} (${systemUids.map(() => "?").join(",")})` : "1=1";
     const counts = {}, all = {};
     for (const [name, table] of Object.entries(categories)) {
-      const sql = name.startsWith("reset") ? `SELECT * FROM ${table} WHERE ${where} ORDER BY rowid` : ["messages", "quarantine"].includes(name) ? `SELECT * FROM ${table} WHERE ${where} ORDER BY id` : `SELECT p.message_id FROM ${table} p JOIN messages m ON m.id=p.message_id WHERE ${where} ORDER BY p.message_id`;
+      const sql = name.startsWith("reset") || name.startsWith("functionObservation") ? `SELECT * FROM ${table} WHERE ${where} ORDER BY rowid` : ["messages", "quarantine"].includes(name) ? `SELECT * FROM ${table} WHERE ${where} ORDER BY id` : `SELECT p.message_id FROM ${table} p JOIN messages m ON m.id=p.message_id WHERE ${where} ORDER BY p.message_id`;
       const rows = this.db.prepare(sql).all(...systemUids); counts[name] = rows.length; all[name] = rows;
     }
     return {counts, digest: digest(canonical(all))};
   }
   emptyProof() {
-    return transaction(this.db, () => {this.ready(); const records = this.records([], true); return {schemaVersion: 1, contractVersion: "1.0.0", databaseSchemaVersion: 3, state: Object.values(records.counts).every(n => n === 0) ? "EMPTY" : "NONEMPTY", recordCounts: records.counts, observedAt: this.clock().toISOString()};}, false);
+    return transaction(this.db, () => {this.ready(); const records = this.records([], true); return {schemaVersion: 1, contractVersion: "1.0.0", databaseSchemaVersion: 4, state: Object.values(records.counts).every(n => n === 0) ? "EMPTY" : "NONEMPTY", recordCounts: records.counts, observedAt: this.clock().toISOString()};}, false);
   }
   preview(systemUids) {
     const selector = this.selector(systemUids); this.ready();
@@ -133,6 +150,8 @@ export class TireStore {
       this.db.prepare(`DELETE FROM quarantine WHERE system_uid IN (${placeholders})`).run(...selector);
       this.db.prepare(`DELETE FROM demo_reset_commands WHERE system_uid IN (${placeholders})`).run(...selector);
       this.db.prepare(`DELETE FROM demo_reset_producers WHERE system_uid IN (${placeholders})`).run(...selector);
+      this.db.prepare(`DELETE FROM function_observations WHERE system_uid IN (${placeholders})`).run(...selector);
+      this.db.prepare(`DELETE FROM function_observation_conflicts WHERE system_uid IN (${placeholders})`).run(...selector);
       const remaining = this.records(selector, true), nonmatching = this.records(selector, false);
       if (Object.values(remaining.counts).some(n => n !== 0) || nonmatching.digest !== rest.digest) throw new Error("CLEANUP_PROOF_FAILED");
       this.previews.delete(token);

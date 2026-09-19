@@ -21,16 +21,24 @@ or backend was deployed by these local source tests.
 
 ## Public contract
 
+The P3 consumer adds `TIRE_FUNCTION_OBSERVATION` revision 3 / 3.0.0 without
+widening the four legacy product kinds. Its closed fields separate connection,
+input, activity, delivery, advisory and a historical last-result reference.
+Source generation/sequence determines order; receipt time cannot renew
+freshness. These reports do not establish Cloud installation or authentication.
+Backend source tests passed; this increment is not deployed or live-qualified.
+
 | Route | Meaning |
 | --- | --- |
 | `GET /health/live` | HTTP process answers |
-| `GET /health/ready` | Known SQLite product schema/storage; `scope: TIRE_PRODUCT`, schema 2 |
+| `GET /health/ready` | Known SQLite product schema/storage; `scope: TIRE_PRODUCT`, schema 4 |
 | `GET /health/context` | Valid current binding, separate from process/storage health |
 | `POST /api/v1/tire/messages` | One validated message, transaction committed before ACK |
 | `GET /api/v1/tire/units/{systemUid}/assessments` | Assessment records |
 | `GET /api/v1/tire/units/{systemUid}/events` | Band-change records |
 | `GET /api/v1/tire/units/{systemUid}/advisories` | Advisory facts, not inferred driver receipt |
 | `GET /api/v1/tire/units/{systemUid}/function-status` | Function-team reports, stale after 90 seconds |
+| `GET /api/v1/tire/units/{systemUid}/function-observations` | V3 source-ordered heads per native binding, source age and visible conflicts |
 | `GET /api/v1/tire/stream?systemUid=...` | SSE notification only; REST reread is authoritative |
 
 Absent context returns `503 CURRENT_UNIT_CONTEXT_UNAVAILABLE`; foreign UID
@@ -39,7 +47,7 @@ list. Browser-origin ingestion is forbidden; public admin and Brake paths
 return 404. Unimplemented product endpoints, including CPU qualification
 control, return `501 NOT_IMPLEMENTED`, never simulated success.
 
-The four kinds are `TIRE_HEALTH_ASSESSMENT`, `TIRE_CONDITION_BAND_CHANGED`,
+The four legacy kinds are `TIRE_HEALTH_ASSESSMENT`, `TIRE_CONDITION_BAND_CHANGED`,
 `TIRE_ADVISORY_FACT` and `TIRE_FUNCTION_STATUS`. Packaged closed schemas are
 snapshots of the Solution contracts, including bounded canonical `X.Y.Z`
 release versions. Duplicate JSON keys, malformed UTF-8, unknown fields,
@@ -60,7 +68,7 @@ Key digest is SHA-256 of the RFC8785 D4-019 idempotency-key array. A same-key
 changed envelope returns 409 and is quarantined. ACK proves durable storage
 only, not Gateway application, driver acknowledgement or OEM approval.
 
-Queries accept `limit` (1–100, default 50) and opaque `cursor`; unsupported or
+Legacy product queries accept `limit` (1–100, default 50) and opaque `cursor`; unsupported or
 duplicate parameters fail. Fixed highest-record boundary and descending order
 make pagination stable and bound to UID/category. Result:
 
@@ -75,13 +83,25 @@ Function-status items additionally contain
 AosCore lifecycle state. SSE sends only `{"reread":true}` with at most 16 connections
 and backpressure disconnect; it never replaces authoritative reads.
 
+The new function-observations query accepts only `limit` (1–100, default 10),
+not a cursor. It returns revision 3 / 3.0.0, resourceType FUNCTION_OBSERVATION,
+unitSystemUid, items and truncated. Items include authority
+FUNCTION_TEAM_REPORTED_OBSERVATION, stale, clockSkew and deliveryState.
+The 8192-byte canonical bound and exact retry/conflict handling apply to the
+new discriminator. Retain the newest 1024 full payloads per binding and compact
+receipt/conflict identities until scoped cleanup. Consumers and cleanup
+adapters must be activated before new observation producers.
+
 ## Storage and current context
 
 Node 26.0.0 uses built-in HTTP/SQLite and no npm dependencies. SQLite uses WAL,
 FULL synchronous, foreign keys and a 5000 ms busy timeout. Exact known foundation
-schema 1 migrates transactionally to product schema 2 before readiness. The
-six record categories are `messages`, `assessments`, `events`, `advisories`,
-`functionStatus`, `quarantine`. Ledger/schema/integrity are checked. Unknown
+schema 1 migrates to product schema 2, followed by reset schema 3 and additive
+observation schema 4. Each migration validates its exact predecessor and is
+transactional. Old canonical data and receipts are preserved. The ten record
+categories are `messages`, `assessments`, `events`, `advisories`,
+`functionStatus`, `quarantine`, `resetProducers`, `resetCommands`,
+`functionObservations`, `functionObservationConflicts`. Ledger/schema/integrity are checked. Unknown
 versions/objects fail closed without destructive reset or downgrade.
 
 Demo Control atomically replaces its owned read-only context file:
@@ -133,11 +153,11 @@ Execute deletes in one transaction and returns:
 Read-only whole-store proof needs no UID context:
 
 ```text
-{schemaVersion:1, contractVersion:"1.0.0", databaseSchemaVersion:2,
+{schemaVersion:1, contractVersion:"1.0.0", databaseSchemaVersion:4,
  state:"EMPTY"|"NONEMPTY", recordCounts, observedAt}
 ```
 
-All count objects have exactly the six category keys above. Empty means six
+All count objects have exactly the ten category keys above. Empty means ten
 zero counts plus supported schema/integrity, not an opaque digest assumption.
 After product migration, old `foundation-proof` fails closed. Product cleanup
 and empty proof must precede any separately authorized owned-volume reset.

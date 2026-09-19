@@ -38,7 +38,7 @@ function error(response, status, code) {
 }
 function failure(response, reason) {
   if (reason.startsWith("RESET_")) return error(response, reason === "RESET_INVALID_REQUEST" ? 400 : 409, reason);
-  const known = {INVALID_MESSAGE: 422, MESSAGE_TOO_LARGE: 413, UNIT_NOT_CURRENT: 404, CURRENT_UNIT_CONTEXT_UNAVAILABLE: 503, INVALID_REQUEST: 400, INVALID_SELECTOR: 400, INVALID_PREVIEW: 409, STALE_PREVIEW: 409};
+  const known = {INVALID_MESSAGE: 422, MESSAGE_TOO_LARGE: 413, INVALID_FUNCTION_OBSERVATION: 422, FUNCTION_OBSERVATION_TOO_LARGE: 413, UNIT_NOT_CURRENT: 404, CURRENT_UNIT_CONTEXT_UNAVAILABLE: 503, INVALID_REQUEST: 400, INVALID_SELECTOR: 400, INVALID_PREVIEW: 409, STALE_PREVIEW: 409};
   error(response, known[reason] ?? 503, Object.hasOwn(known, reason) ? reason : "TEMPORARILY_UNAVAILABLE");
 }
 async function body(req, maximum = 32768) {
@@ -99,7 +99,7 @@ export async function startBackend(options) {
       try { store.ready(); }
       catch { database.close(); database = undefined; reason = "DATABASE_UNAVAILABLE"; }
     }
-    return {ready: !!database, reason, schemaVersion: database ? 3 : null, scope: "TIRE_PRODUCT", productIngestion: !!database};
+    return {ready: !!database, reason, schemaVersion: database ? 4 : null, scope: "TIRE_PRODUCT", productIngestion: !!database};
   };
   const contextReadiness = () => {
     const systemUids = readContext(options.contextPath);
@@ -142,7 +142,7 @@ export async function startBackend(options) {
     }
     const resetStatus = /^\/api\/v1\/tire\/units\/([^/]+)\/demo-reset$/.exec(path);
     if (resetStatus && req.method === "GET") return json(res, 200, resets.status(decodeURIComponent(resetStatus[1])));
-    const scoped = /^\/api\/v1\/tire\/units\/([^/]+)\/(assessments|events|advisories|function-status)$/.exec(path);
+    const scoped = /^\/api\/v1\/tire\/units\/([^/]+)\/(assessments|events|advisories|function-status|function-observations)$/.exec(path);
     if (scoped) {
       const context = contextReadiness();
       if (!context.ready) return error(res, 503, context.reason);
@@ -151,6 +151,12 @@ export async function startBackend(options) {
       if (!context.systemUids.includes(uid)) return error(res, 404, "UNIT_NOT_CURRENT");
       if (req.method !== "GET") return error(res, 405, "METHOD_NOT_ALLOWED");
       const params = new URL(req.url, "http://localhost").searchParams;
+      if (scoped[2] === "function-observations") {
+        if ([...params.keys()].some(k => k !== "limit") || params.getAll("limit").length > 1) throw new Error("INVALID_REQUEST");
+        const limit = Number(params.get("limit") ?? 10);
+        if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error("INVALID_REQUEST");
+        return json(res, 200, store.query(uid, "functionObservations", {limit}));
+      }
       if ([...params.keys()].some(k => !["cursor", "limit"].includes(k)) || [...params.keys()].some(k => params.getAll(k).length !== 1)) throw new Error("INVALID_REQUEST");
       return json(res, 200, store.query(uid, scoped[2] === "function-status" ? "functionStatus" : scoped[2], {limit: params.has("limit") ? Number(params.get("limit")) : 50, cursor: params.get("cursor")}));
     }
