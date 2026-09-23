@@ -1,12 +1,22 @@
 <!-- SPDX-FileCopyrightText: 2026 maninblack -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# Tire Health Cloud — product source candidate
+# Tire Health Cloud
+
+## Current evidence — 23 September 2026
+
+The integration [working baseline](../aosedge-sdv-demo/docs/qualification/current-baseline.md)
+records scoped staging proof of actual Tire product receipts, advisory facts,
+independent Reset and offline/backlog delivery. Source revision `47cfa63`
+participated in the 20 September UI checkpoint. Those are dated observations,
+not proof of a running backend today, complete P8 or a calibrated Tire model.
+The source-increment descriptions below are historical implementation context;
+their original "not deployed" wording is superseded by those scoped receipts.
 
 Independent Function Team 2 backend for D4-019. Product ingestion, durable
 receipts, queries and private cleanup replace the foundation-only gate.
-This source checkpoint is not a built/deployed/qualified backend or calibrated
-Tire model. Brake identity, database and failure boundary are not shared.
+Source code alone does not qualify a deployment or calibrate the Tire model.
+Brake identity, database and failure boundary are not shared.
 
 The N3 consumer increment accepts legacy product revision 1 / 1.0.0 and native
 revision 2 / 2.0.0 through separate closed schemas. Native messages identify
@@ -16,8 +26,8 @@ identity. OCI digest fields are rejected, not fabricated. Reported identity
 is correlation only, never authentication or Aos lifecycle authority.
 Legacy messages, original receipts and outbox retries remain unchanged;
 the existing canonical-message SQLite layout needs no migration.
-Producer/input migration and real Test integration remain open; no service
-or backend was deployed by these local source tests.
+Producer/input migration and real Test integration subsequently received the
+scoped evidence above; the original local tests themselves deployed nothing.
 
 ## Public contract
 
@@ -26,7 +36,7 @@ widening the four legacy product kinds. Its closed fields separate connection,
 input, activity, delivery, advisory and a historical last-result reference.
 Source generation/sequence determines order; receipt time cannot renew
 freshness. These reports do not establish Cloud installation or authentication.
-Backend source tests passed; this increment is not deployed or live-qualified.
+Backend source tests passed; live evidence is recorded separately above.
 
 | Route | Meaning |
 | --- | --- |
