@@ -3,12 +3,21 @@
 
 # Tire Health Cloud
 
-## Current evidence — 23 September 2026
+For the implemented Test-only private cleanup wire, see the
+[as-built protocol](../aosedge-sdv-demo/contracts/tire-cloud-api/studio-current-wire.md).
+The older Solution JSON profile/preview schema still describe two UIDs and
+fewer counters; that executable-contract drift remains explicit maintenance
+work. This README describes the current handler, not proof that those old
+schemas accept its responses.
+
+## Current evidence — 24 September 2026
 
 The integration [working baseline](../aosedge-sdv-demo/docs/qualification/current-baseline.md)
 records scoped staging proof of actual Tire product receipts, advisory facts,
-independent Reset and offline/backlog delivery. Source revision `47cfa63`
-participated in the 20 September UI checkpoint. Those are dated observations,
+independent Reset and offline/backlog delivery. The demo-v1.1 source pin and Factory39 offline receipt cover Tire49/V1
+assessment/advisory replay; legacy status records have count/time evidence only.
+Source revision `47cfa63` participated in the earlier 20 September UI checkpoint.
+Those are dated observations,
 not proof of a running backend today, complete P8 or a calibrated Tire model.
 The source-increment descriptions below are historical implementation context;
 their original "not deployed" wording is superseded by those scoped receipts.
