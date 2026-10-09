@@ -3,6 +3,26 @@
 
 # Tire Health Cloud
 
+Independent Tire backend: validated products, durable receipts, queries and
+service-scoped reset, with storage separate from Brake.
+
+## SDV Lab entry
+
+For the complete demo, start at the
+[SDV Lab product repository](https://github.com/alexmaninblack/aosedge-sdv-demo).
+Operators use its prebuilt installer; developers use its pinned build route.
+This component is not a standalone installer for the whole lab. Integration
+source pins and published artifact provenance do not change when this README
+changes. Detailed historical evidence below retains its original scope.
+
+[Advisory integration](docs/advisory-demo-control.md) and
+[public contract](#public-contract).
+
+Local checks: `node --test test/*.test.mjs` with pinned Node 26.0.0 uses
+temporary databases and local sockets. Set scratch on the declared SSD;
+no Cloud, VM or Docker deployment is part of that command.
+
+
 For the implemented Test-only private cleanup wire, see the
 [as-built protocol](../aosedge-sdv-demo/contracts/tire-cloud-api/studio-current-wire.md).
 The older Solution JSON profile/preview schema still describe two UIDs and
