@@ -135,6 +135,11 @@ leave Docker Engine and unrelated workloads running.
 
 ## Component documentation
 
+- [Current private admin profile](https://github.com/alexmaninblack/aosedge-sdv-demo/blob/main/contracts/tire-cloud-api/current-admin-profile.v1.json)
+  defines the existing Test-only/optional-peer ten-category cleanup messages.
+  Schema validation does not replace this backend's selector, opaque-token or
+  peer-preserving transaction checks. Retained two-UID fixtures test legacy
+  compatibility, not the current protocol.
 - [Advisory integration](docs/advisory-demo-control.md)
 - [License](LICENSE) and [notices](NOTICE)
 
